@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== Token màu thương hiệu HPU (Brand Guideline tr.10) ===== */
+:root {
+  --hpu-primary: #168fcc;       /* Chủ đạo  — C100 M20 Y0 K5  */
+  --hpu-primary-dark: #0087c3;  /* Bổ trợ tối — C100 M25 Y0 K10 */
+  --hpu-primary-light: #94cbee; /* Bổ trợ sáng — C40 M7 Y0 K0  */
+  --hpu-primary-tint: #eaf5fb;  /* Nền bong bóng bot (rất nhạt) */
+  --hpu-bg: #f6f9fb;
+  --hpu-surface: #ffffff;
+  --hpu-ink: #0b2a3f;
+  --hpu-muted: #5e7385;
+  --hpu-border: #e1e9f0;
+  --hpu-accent: #ed1c24;  /* đỏ — hành động phủ định (xóa, 👎) */
+}
+
+html,
+body {
+  height: 100%;
+}
+body {
+  background: var(--hpu-bg);
+  color: var(--hpu-ink);
+}
+
+/* Tôn trọng người dùng giảm chuyển động */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

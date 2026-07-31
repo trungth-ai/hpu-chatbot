@@ -1,0 +1,50 @@
+# ============================================================
+#  HPU Chatbot — Docker Compose (Sprint 0–1)
+#  Chạy production:  docker compose -f infra/docker-compose.yml up -d --build
+#  Chạy local (không cần domain): bỏ service "caddy", truy cập http://localhost:3000
+# ============================================================
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: hpu_chatbot
+      POSTGRES_USER: hpu
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../db/init:/docker-entrypoint-initdb.d   # chạy schema khi DB rỗng
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hpu -d hpu_chatbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../web
+    env_file: ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"          # tiện test local; có thể bỏ khi đã dùng Caddy
+    restart: unless-stopped
+
+#  caddy:
+#    image: caddy:2
+#    ports:
+#      - "80:80"
+#      - "443:443"
+#    volumes:
+#      - ./Caddyfile:/etc/caddy/Caddyfile
+#      - caddy_data:/data
+#      - caddy_config:/config
+#    depends_on:
+#      - web
+#    restart: unless-stopped
+
+volumes:
+  pgdata:
+#  caddy_data:
+#  caddy_config:

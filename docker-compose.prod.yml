@@ -1,0 +1,77 @@
+# ============================================================
+#  HPU Chatbot — Production
+#  Chạy:  docker compose -f infra/docker-compose.prod.yml up -d --build
+#  Khác bản dev: KHÔNG hở cổng web ra ngoài (chỉ Caddy 80/443), có backup, restart always.
+# ============================================================
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: hpu_chatbot
+      POSTGRES_USER: hpu
+      POSTGRES_PASSWORD: Abc123654
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hpu -d hpu_chatbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  web:
+    build:
+      context: ../web
+    env_file: ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    restart: always
+
+  ingest:
+    build:
+      context: ../ingestion
+    env_file: ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8787"
+    restart: always
+
+#  caddy:
+#    image: caddy:2
+#    ports:
+#      - "80:80"
+#      - "443:443"
+#    volumes:
+#      - ./Caddyfile:/etc/caddy/Caddyfile
+#      - caddy_data:/data
+#      - caddy_config:/config
+#    depends_on:
+#      - web
+#    restart: always
+
+  # Sao lưu PostgreSQL định kỳ (pg_dump + xoay vòng)
+  backup:
+    image: postgres:16
+    env_file: ../.env
+    environment:
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ../backups:/backups
+      - ./backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  pgdata:
+#  caddy_data:
+#  caddy_config:

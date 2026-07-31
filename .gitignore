@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+# Next.js
+.next/
+out/
+# Production
+build/
+# Env & secrets
+.env
+.env*.local
+*.json.key
+# Drizzle
+web/drizzle/
+# Logs & misc
+*.log
+.DS_Store
+coverage/
+chat-501006-65d409f988dd.json
+*chat-501006-65d409f988dd.json
+
