@@ -129,12 +129,17 @@ export interface ConversationMemory {
 }
 
 export async function getConversationMemory(conversationId: string): Promise<ConversationMemory> {
-  const r = await pool.query(
-    "SELECT summary, summary_upto FROM conversations WHERE id = $1",
-    [conversationId],
-  );
-  const row = r.rows[0];
-  return { summary: row?.summary ?? null, summaryUpto: Number(row?.summary_upto ?? 0) };
+  try {
+    const r = await pool.query(
+      "SELECT summary, summary_upto FROM conversations WHERE id = $1",
+      [conversationId],
+    );
+    const row = r.rows[0];
+    return { summary: row?.summary ?? null, summaryUpto: Number(row?.summary_upto ?? 0) };
+  } catch {
+    // Cột chưa tồn tại (chưa chạy migration) -> coi như chưa có bộ nhớ L2, chat vẫn chạy bình thường
+    return { summary: null, summaryUpto: 0 };
+  }
 }
 
 export async function setConversationMemory(
@@ -142,8 +147,12 @@ export async function setConversationMemory(
   summary: string,
   upto: number,
 ): Promise<void> {
-  await pool.query(
-    "UPDATE conversations SET summary = $2, summary_upto = $3 WHERE id = $1",
-    [conversationId, summary, upto],
-  );
+  try {
+    await pool.query(
+      "UPDATE conversations SET summary = $2, summary_upto = $3 WHERE id = $1",
+      [conversationId, summary, upto],
+    );
+  } catch {
+    // Cột chưa tồn tại (chưa chạy migration) -> bỏ qua, không ảnh hưởng chat
+  }
 }
