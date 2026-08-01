@@ -3,11 +3,13 @@ import { retrieve } from "@/lib/rag/retrieve";
 import {
   buildSystemPrompt,
   buildUserPrompt,
+  buildHistoryTurns,
+  buildTranscript,
   toCitations,
   shouldFallback,
   FALLBACK_MESSAGE,
 } from "@/lib/rag/prompt";
-import { streamAnswer, answerWithAdmissionTool } from "@/lib/rag/gemini";
+import { streamAnswer, answerWithAdmissionTool, summarizeConversation } from "@/lib/rag/gemini";
 import { classifyProduct } from "@/lib/rag/products";
 import { logKnowledgeGap } from "@/lib/rag/gaps";
 import { deriveTitle } from "@/lib/chat/title";
@@ -16,6 +18,9 @@ import { checkChatRateLimit } from "@/lib/rate-limit";
 import {
   createConversation,
   conversationOwned,
+  getMessages,
+  getConversationMemory,
+  setConversationMemory,
   saveMessage,
   setTitleIfEmpty,
   touchConversation,
@@ -28,6 +33,10 @@ export const dynamic = "force-dynamic";
 
 const THRESHOLD = Number(process.env.SIMILARITY_THRESHOLD ?? "0.55");
 const TOP_K = Number(process.env.RETRIEVAL_TOP_K ?? "6");
+// Lớp 2 bộ nhớ: bắt đầu tóm tắt khi hội thoại đủ dài, và chỉ cập nhật lại sau mỗi vài tin (tiết kiệm gọi Gemini).
+const MEMORY_L2 = process.env.MEMORY_L2 !== "0";
+const SUMMARY_AFTER = Number(process.env.SUMMARY_AFTER ?? "8");
+const SUMMARY_EVERY = Number(process.env.SUMMARY_EVERY ?? "6");
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -73,6 +82,14 @@ export async function POST(req: Request) {
   if (!conversationId) {
     conversationId = await createConversation(userId, null);
   }
+  // Lịch sử hội thoại (trước câu hỏi hiện tại) -> để model nhớ mạch trò chuyện
+  const priorMessages = await getMessages(conversationId, userId);
+  const history = buildHistoryTurns(
+    priorMessages.map((m) => ({ role: m.role, content: m.content })),
+    Number(process.env.HISTORY_MAX_CHARS ?? "8000"),
+  );
+  const convMemory = await getConversationMemory(conversationId);
+
   await saveMessage(conversationId, "user", message, null, product, "web");
   await setTitleIfEmpty(conversationId, deriveTitle(message));
 
@@ -129,13 +146,34 @@ export async function POST(req: Request) {
       }
 
       try {
+        // Lớp 2: nếu hội thoại đã dài & bản tóm tắt cũ -> cập nhật ghi nhớ (bọc try, lỗi thì bỏ qua, L1 vẫn chạy)
+        let memory = convMemory.summary;
+        if (
+          MEMORY_L2 &&
+          priorMessages.length >= SUMMARY_AFTER &&
+          priorMessages.length - convMemory.summaryUpto >= SUMMARY_EVERY
+        ) {
+          try {
+            const transcript = buildTranscript(
+              priorMessages.map((m) => ({ role: m.role, content: m.content })),
+            );
+            const updated = await summarizeConversation(transcript, memory);
+            if (updated) {
+              memory = updated;
+              await setConversationMemory(convId, updated, priorMessages.length);
+            }
+          } catch (e) {
+            console.error("Tóm tắt bộ nhớ lỗi (bỏ qua):", e);
+          }
+        }
+
         const chunks = await retrieve({ query: message, product, role, topK: TOP_K });
         let answer = "";
         let citations: Citation[] = [];
 
         if (product === "tuyen-sinh") {
           // Tuyển sinh: cho phép gọi tool tra cứu số liệu (Sprint 8 trả dữ liệu mẫu)
-          const sys = buildSystemPrompt({ role, product, channel: "web" });
+          const sys = buildSystemPrompt({ role, product, channel: "web", memory });
           const userPrompt = buildUserPrompt(message, chunks);
           answer = await answerWithAdmissionTool(sys, userPrompt);
           await streamText(answer, 0);
@@ -145,9 +183,9 @@ export async function POST(req: Request) {
           await streamText(FALLBACK_MESSAGE);
           await logKnowledgeGap({ question: message, product, role, channel: "web" });
         } else {
-          const sys = buildSystemPrompt({ role, product, channel: "web" });
+          const sys = buildSystemPrompt({ role, product, channel: "web", memory });
           const userPrompt = buildUserPrompt(message, chunks);
-          for await (const piece of streamAnswer(sys, userPrompt)) {
+          for await (const piece of streamAnswer(sys, userPrompt, history)) {
             if (closed) break; // client đã ngắt -> ngừng sinh tiếp
             answer += piece;
             send({ type: "token", value: piece });

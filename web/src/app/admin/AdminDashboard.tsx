@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, RefreshCw, Trash2, Loader2 } from "lucide-react";
+import { ArrowLeft, RefreshCw, Trash2, Loader2, ExternalLink } from "lucide-react";
 import { HpuLogo } from "@/components/HpuLogo";
 import { VALID_ROLES, ROLE_LABELS, type Role } from "@/lib/admin/roles";
 import { containmentRate, satisfactionRate, toPercent } from "@/lib/admin/stats";
@@ -253,7 +253,18 @@ function SourcesTab({
             )}
             {sources.map((s) => (
               <tr key={s.id} className="border-t border-hpu-border">
-                <td className="px-3 py-2 font-medium">{s.product}</td>
+                <td className="px-3 py-2 font-medium">
+                  <a
+                    href={`https://drive.google.com/drive/folders/${s.folderId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Mở thư mục Drive (ID: ${s.folderId})`}
+                    className="inline-flex items-center gap-1 text-hpu-primary hover:underline"
+                  >
+                    {s.product}
+                    <ExternalLink className="h-3.5 w-3.5 opacity-70" />
+                  </a>
+                </td>
                 <td className="px-3 py-2 text-hpu-muted">{s.module ?? "—"}</td>
                 <td className="px-3 py-2 text-hpu-muted">{s.roleScope.join(", ")}</td>
                 <td className="px-3 py-2">{s.fileCount}</td>
