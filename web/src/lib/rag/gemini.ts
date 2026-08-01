@@ -42,17 +42,43 @@ export async function embedQuery(text: string): Promise<number[]> {
 export async function* streamAnswer(
   systemInstruction: string,
   userPrompt: string,
+  history: { role: "user" | "model"; text: string }[] = [],
 ): AsyncGenerator<string> {
   const model = client().getGenerativeModel({
     model: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
     systemInstruction,
     generationConfig: { temperature: 0.3 },
   });
-  const result = await model.generateContentStream(userPrompt);
+  // Ghép lịch sử hội thoại + câu hỏi hiện tại (có ngữ cảnh) để model "nhớ" mạch trò chuyện.
+  const contents = [
+    ...history.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
+    { role: "user" as const, parts: [{ text: userPrompt }] },
+  ];
+  const result = await model.generateContentStream({ contents });
   for await (const chunk of result.stream) {
     const t = chunk.text();
     if (t) yield t;
   }
+}
+
+/** Lớp 2 bộ nhớ: chắt lọc GHI CHÚ ngắn về người dùng + bối cảnh từ hội thoại. Không stream. */
+export async function summarizeConversation(
+  transcript: string,
+  prevSummary: string | null,
+): Promise<string> {
+  const sys = [
+    "Bạn là bộ nhớ của một trợ lý hỗ trợ phần mềm. Nhiệm vụ: cập nhật GHI CHÚ ngắn gọn giúp trợ lý nhớ bối cảnh cuộc trò chuyện.",
+    "CHỈ ghi những gì được nói RÕ trong hội thoại. TUYỆT ĐỐI không suy diễn, không bịa thêm.",
+    "Tối đa ~150 từ, dạng gạch đầu dòng tiếng Việt, gồm (nếu có):",
+    "• Thông tin người dùng đã tự cung cấp (tên, vai trò, đơn vị/khoa, phần mềm đang dùng, bối cảnh công việc).",
+    "• Vấn đề/yêu cầu chính đang xử lý còn dang dở.",
+    "Nếu chưa có gì đáng nhớ, chỉ trả về đúng một từ: KHÔNG.",
+  ].join("\n");
+  const user =
+    (prevSummary && prevSummary.trim() ? `GHI CHÚ hiện có:\n${prevSummary.trim()}\n\n` : "") +
+    `HỘI THOẠI:\n${transcript}\n\nHãy trả về GHI CHÚ cập nhật:`;
+  const text = await answerOnce(sys, user);
+  return text.trim();
 }
 
 /** Trả lời một lần (không stream) — dùng cho kênh không stream như Zalo OA. */

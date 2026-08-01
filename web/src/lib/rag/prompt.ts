@@ -33,6 +33,7 @@ export function buildSystemPrompt(opts: {
   role?: string;
   product?: string | null;
   channel?: string;
+  memory?: string | null;
 }): string {
   const role = roleLabel(opts.role);
   const product = opts.product ? `phần mềm ${opts.product}` : "các phần mềm của trường";
@@ -52,7 +53,14 @@ export function buildSystemPrompt(opts: {
     "6. KHÔNG dùng cú pháp LaTeX hay công thức toán (lệnh bắt đầu bằng dấu gạch chéo ngược, hoặc đặt trong dấu $...$). Cần mũi tên thì gõ ký tự → trực tiếp, cần ký hiệu thì viết bằng chữ.",
     "7. Trả lời bằng tiếng Việt.",
   ];
-  const base = lines.join("\n");
+  const mem = (opts.memory ?? "").trim();
+  const memBlock =
+    mem && mem.toUpperCase() !== "KHÔNG"
+      ? "\n\n# GHI NHỚ VỀ NGƯỜI DÙNG & BỐI CẢNH (từ các tin trước trong cuộc trò chuyện)\n" +
+        mem +
+        "\n- Dùng thông tin này để trả lời nhất quán; KHÔNG hỏi lại điều người dùng đã nói."
+      : "";
+  const base = lines.join("\n") + memBlock;
   if (opts.product === "tuyen-sinh") {
     return (
       base +
@@ -108,4 +116,52 @@ export function toCitations(chunks: RetrievedChunk[]): Citation[] {
 export function shouldFallback(chunks: RetrievedChunk[], threshold: number): boolean {
   if (!chunks.length) return true;
   return chunks[0].score < threshold;
+}
+
+
+// ---- Bộ nhớ hội thoại (Lớp 1: lịch sử ngắn hạn) ----
+export interface StoredMsgLite {
+  role: string; // "user" | "assistant"
+  content: string;
+}
+export interface HistoryTurn {
+  role: "user" | "model";
+  text: string;
+}
+
+/**
+ * Chuyển lịch sử tin nhắn đã lưu (thứ tự thời gian tăng dần, KHÔNG gồm câu hỏi hiện tại)
+ * thành các lượt hội thoại cho model. Giữ các lượt GẦN NHẤT trong ngân sách ký tự,
+ * và đảm bảo bắt đầu bằng lượt "user" (yêu cầu của Gemini).
+ */
+export function buildHistoryTurns(messages: StoredMsgLite[], maxChars = 8000): HistoryTurn[] {
+  const turns: HistoryTurn[] = [];
+  let total = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const text = (messages[i].content ?? "").trim();
+    if (!text) continue;
+    if (total + text.length > maxChars && turns.length) break; // vượt ngân sách -> dừng (luôn giữ ít nhất 1 lượt)
+    turns.push({ role: messages[i].role === "assistant" ? "model" : "user", text });
+    total += text.length;
+  }
+  turns.reverse();
+  while (turns.length && turns[0].role !== "user") turns.shift();
+  return turns;
+}
+
+
+/** Ghép các tin nhắn (thứ tự tăng dần) thành bản ghi hội thoại để tóm tắt (giữ phần GẦN NHẤT trong ngân sách). */
+export function buildTranscript(messages: StoredMsgLite[], maxChars = 12000): string {
+  const lines: string[] = [];
+  let total = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const who = messages[i].role === "assistant" ? "Trợ lý" : "Người dùng";
+    const text = (messages[i].content ?? "").trim();
+    if (!text) continue;
+    const line = `${who}: ${text}`;
+    if (total + line.length > maxChars && lines.length) break;
+    lines.push(line);
+    total += line.length;
+  }
+  return lines.reverse().join("\n");
 }

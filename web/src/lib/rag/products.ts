@@ -62,3 +62,38 @@ export function classifyProduct(question: string, products: ProductDef[] = PRODU
   }
   return best ? best.id : null;
 }
+
+
+// ---- Danh mục ĐỘNG cho bộ chọn (gộp danh mục cứng + product đang có nội dung trong kho) ----
+export interface ProductOption {
+  id: string;
+  label: string;
+}
+
+/** Biến slug "sach-giao-khoa" -> "Sach Giao Khoa" (nhãn tạm cho product mới chưa có nhãn cứng). */
+export function prettifySlug(id: string): string {
+  return id
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+/**
+ * Gộp danh mục cứng (nhãn đẹp + có định tuyến) với các product ĐANG CÓ nội dung trong kho.
+ * Nhờ vậy: thêm nguồn Drive mới + đồng bộ có dữ liệu -> collection tự hiện trong bộ chọn.
+ */
+export function mergeProductOptions(activeIds: string[]): ProductOption[] {
+  const out: ProductOption[] = [];
+  const seen = new Set<string>();
+  for (const p of PRODUCTS) {
+    out.push({ id: p.id, label: p.label });
+    seen.add(p.id);
+  }
+  for (const id of activeIds) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, label: prettifySlug(id) });
+  }
+  return out;
+}

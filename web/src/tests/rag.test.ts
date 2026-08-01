@@ -92,7 +92,7 @@ describe("shouldFallback — quyết định trả lời 'không biết'", () =>
   it("điểm cao nhất >= ngưỡng -> KHÔNG fallback", () => {
     expect(shouldFallback([chunk({ score: 0.7 })], 0.55)).toBe(false);
   });
-  it("câu fallback có nhắc Phòng CNTT", () => {
-    expect(FALLBACK_MESSAGE).toContain("CNTT");
+  it("câu fallback có nhắc Phòng QTM", () => {
+    expect(FALLBACK_MESSAGE).toContain("QTM");
   });
 });

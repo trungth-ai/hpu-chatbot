@@ -148,3 +148,16 @@ export async function recentGaps(
     createdAt: x.created_at,
   }));
 }
+
+
+/** Các product ĐANG CÓ nội dung trong kho (>=1 chunk) — để dựng bộ chọn động. */
+export async function listActiveProducts(): Promise<{ product: string; count: number }[]> {
+  const r = await pool.query(
+    `SELECT product, count(*)::int AS count
+       FROM kb_documents
+      WHERE product IS NOT NULL AND product <> ''
+      GROUP BY product
+      ORDER BY count DESC`,
+  );
+  return r.rows.map((x) => ({ product: x.product, count: Number(x.count) }));
+}
