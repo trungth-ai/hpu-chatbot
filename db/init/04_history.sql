@@ -5,7 +5,9 @@
 CREATE TABLE IF NOT EXISTS conversations (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id    BIGINT REFERENCES users(id) ON DELETE CASCADE,
-  title      TEXT,
+  title        TEXT,
+  summary      TEXT,            -- Lớp 2: ghi nhớ bối cảnh + thông tin người dùng đã cung cấp
+  summary_upto INT DEFAULT 0,   -- số tin nhắn mà bản summary đã bao phủ (để biết khi nào cập nhật)
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

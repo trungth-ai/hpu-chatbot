@@ -2,7 +2,7 @@
 import base64
 import io
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -11,6 +11,7 @@ from googleapiclient.http import MediaIoBaseDownload
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 GOOGLE_DOC = "application/vnd.google-apps.document"
 FOLDER = "application/vnd.google-apps.folder"
+SHORTCUT = "application/vnd.google-apps.shortcut"
 
 
 def get_drive_service(sa_key_base64: str):
@@ -21,19 +22,48 @@ def get_drive_service(sa_key_base64: str):
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
+def _get_file_meta(service, file_id: str) -> Optional[Dict[str, Any]]:
+    """Lấy metadata một file theo id (dùng để phân giải lối tắt trỏ tới file)."""
+    try:
+        return (
+            service.files()
+            .get(
+                fileId=file_id,
+                fields="id,name,mimeType,md5Checksum,modifiedTime",
+                supportsAllDrives=True,
+            )
+            .execute()
+        )
+    except Exception:
+        return None
+
+
 def list_files_recursive(service, folder_id: str) -> List[Dict[str, Any]]:
-    """Liệt kê đệ quy mọi file (không phải thư mục) trong folder."""
+    """Liệt kê ĐỆ QUY mọi file (không phải thư mục) trong folder, đi sâu vô số tầng thư mục con.
+
+    Xử lý cả LỐI TẮT (shortcut):
+    - Lối tắt trỏ tới THƯ MỤC  -> đi vào thư mục đích và tiếp tục đệ quy.
+    - Lối tắt trỏ tới FILE      -> phân giải sang file đích để đồng bộ.
+    Có tập 'visited' chống lặp vô hạn (khi shortcut tạo vòng lặp).
+    """
     files: List[Dict[str, Any]] = []
-    stack = [folder_id]
+    stack: List[str] = [folder_id]
+    visited: set = set()
     while stack:
         fid = stack.pop()
+        if fid in visited:
+            continue
+        visited.add(fid)
         page_token = None
         while True:
             resp = (
                 service.files()
                 .list(
                     q=f"'{fid}' in parents and trashed=false",
-                    fields="nextPageToken, files(id,name,mimeType,md5Checksum,modifiedTime)",
+                    fields=(
+                        "nextPageToken, "
+                        "files(id,name,mimeType,md5Checksum,modifiedTime,shortcutDetails)"
+                    ),
                     pageToken=page_token,
                     pageSize=100,
                     supportsAllDrives=True,
@@ -42,8 +72,22 @@ def list_files_recursive(service, folder_id: str) -> List[Dict[str, Any]]:
                 .execute()
             )
             for f in resp.get("files", []):
-                if f["mimeType"] == FOLDER:
+                mime = f.get("mimeType")
+                if mime == FOLDER:
                     stack.append(f["id"])
+                elif mime == SHORTCUT:
+                    sd = f.get("shortcutDetails") or {}
+                    target_id = sd.get("targetId")
+                    target_mime = sd.get("targetMimeType")
+                    if not target_id:
+                        continue
+                    if target_mime == FOLDER:
+                        stack.append(target_id)  # đi vào thư mục đích của lối tắt
+                    else:
+                        tf = _get_file_meta(service, target_id)  # phân giải file đích
+                        if tf and tf.get("mimeType") != FOLDER:
+                            tf.setdefault("name", f.get("name"))
+                            files.append(tf)
                 else:
                     files.append(f)
             page_token = resp.get("nextPageToken")
